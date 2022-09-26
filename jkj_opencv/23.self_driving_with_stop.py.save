@@ -1,0 +1,106 @@
+
+import time
+import cv2
+import numpy as np
+from imutils.video import VideoStream
+import imutils
+import move
+import warnings
+import math
+import ultra
+font = cv2.FONT_HERSHEY_SIMPLEX 
+usingPiCamera = True
+frameSize = (640, 480)
+vs = VideoStream(src=0, usePiCamera=usingPiCamera, resolution=frameSize,framerate=32).start()
+time.sleep(2.0)
+theta=0
+minLineLength = 5
+maxLineGap = 10
+def _map(value,in_min,in_max,out_min,out_max):
+        return float((value-in_min)*(out_max-out_min)/(in_max-in_min)+out_min)
+def checkforred(image):
+	font = cv2.FONT_HERSHEY_SIMPLEX	
+	hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
+        #Red HSV Range
+	low_red=np.array([157,56,0])
+	high_red=np.array([179,255,255])
+	mask=cv2.inRange(hsv,low_red,high_red)
+	blur=cv2.GaussianBlur(mask,(15,15),0)
+	_ ,contours, hierarchy=cv2.findContours(blur,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+	status=0
+	for contour in contours:
+		area=cv2.contourArea(contour)
+		if area>20000:
+			status=1
+			cv2.drawContours(image,contour,-1,(0,0,255),3)
+			#cv2.putText(output_image,'RED STOP',(240,320), font, 2,(0,0,255),2,cv2.LINE_AA)     
+		return (image,status)
+
+while True:
+	frame = vs.read()
+	vertical_flip = cv2.flip(frame, 0)
+	img = cv2.flip(vertical_flip, 1)
+	#red=checkforred(output_image)
+	output_image=np.copy(img)
+	gray=cv2.cvtColor(output_image,cv2.COLOR_RGB2GRAY)
+	blur=cv2.GaussianBlur(gray, (5,5), 0)
+	canny=cv2.Canny(blur,50,150)
+	height=canny.shape[0]
+	width=canny.shape[1]
+	region = np.array([[(0, height),(0,  height/2),(width , height/2),(width , height),]], np.int32)
+	mask=np.zeros_like(canny)
+	fill =cv2.fillPoly(mask,region, 255)
+	roi_image =cv2.bitwise_and(canny,mask)
+	lines = cv2.HoughLinesP(roi_image,1,np.pi/180,10,minLineLength,maxLineGap)
+  #left,right = average_slope_intercept(lines,image) 
+#	lines=cv2.addWeighted(img,1,line,1,0)
+
+	if lines is not None:
+		for x in range(0, len(lines)):
+			for x1,y1,x2,y2 in lines[x]:
+				cv2.line(output_image,(x1,y1),(x2,y2),(0,255,0),2)
+				theta=theta+math.atan2((y2-y1),(x2-x1))
+				#print (theta)
+	threshold=2
+	distance =ultra.Distance()
+	red=checkforred(output_image)
+
+	print ("distance=",distance)
+	if red or distance < 10: 
+		move.stop()
+		cv2.putText(output_image,'stop', (5,100),font,1,(255,255,0),2)
+		print ("stop")
+	elif(theta >threshold):
+		left_value  = _map(theta,0,30,90,120)
+		left = left_value +5
+		move.steering(20,left)
+		cv2.putText(output_image,'left', (5,100),font,1,(255,255,0),2)
+		print("left",left)
+	elif(theta <- threshold):
+		right_value = _map(abs(theta),0,30,90,65)
+		right = right_value-5
+		move.steering(20,right)
+		cv2.putText(output_image,'right', (5,100),font,1,(255,255,0),2)
+		print("right",right)
+	#if(abs(theta)<threshold):
+	#	move.steering(20,90)
+	#	cv2.putText(output_image,'forward', (5,100),font,1,(255,255,0),2)
+	#	print ("forward")
+	else:
+		move.steering(20,90)
+		cv2.putText(output_image,'forward', (5,100),font,1,(255,255,0),2)
+		print ("forward")
+	theta=0
+	cv2.imshow('canny',canny)
+	cv2.imshow('roi',roi_image)
+	cv2.imshow('orig', output_image)
+#	cv2.imshow('frame',lines)
+
+	key = cv2.waitKey(1) & 0xFF
+	if key == ord("q"):
+		break
+
+cv2.destroyAllWindows()
+vs.stop()
+move.stop()
+
